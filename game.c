@@ -2,41 +2,78 @@
 #include <raylib.h>
 
 #define CAR_COLOR BLACK
+#define ROATION_SPEED 80
 int main() {
     int width = 1250;
     int height = 720;
     InitWindow(width, height, "Racer");
+    SetTargetFPS(60);
 
     // car shape
-    int car_x = width/2-30;
-    int car_y = height/2-50;
+    float car_x = width/2-30;
+    float car_y = height/2-50;
     int car_W = 60;
     int car_H = 100;
     float car_speed = 0;
     float car_max_speed = 1000;
+    int car_direction = -1;
+    float car_rotation = 0;
+    float car_speedup = 10;
+    float car_slowdown = 20;
 
     while( ! WindowShouldClose() ) {
-        float dt = GetFrameTime();
+        float dt = GetFrameTime(60);
 
 
         BeginDrawing();
         ClearBackground( PINK );
         if (IsKeyDown(KEY_UP) ) {
-            car_speed  += 100 * dt;
+            car_direction = -1;
+            car_speed  += car_speedup * dt;
+            if (car_speed > car_max_speed) {
+                car_speed = car_max_speed;
+            }
+        } else if (IsKeyDown(KEY_DOWN) ) {
+            car_direction = 1;
+            car_speed  -= car_speedup * dt;
             if (car_speed > car_max_speed) {
                 car_speed = car_max_speed;
             }
         } else {
-            car_speed -= 30 * dt;
-            if (car_speed < 0) {
+            car_speed += car_slowdown * dt * car_direction;
+            if (car_direction == -1 && car_speed < 0) {
+                car_speed = 0;
+            } else if ( car_direction == 1 && car_speed > 0) {
                 car_speed = 0;
             }
         }
 
+        if (IsKeyDown(KEY_LEFT) ) {
+            car_rotation -= ROATION_SPEED * dt;
+        } else if (IsKeyDown(KEY_RIGHT) ) {
+            car_rotation += ROATION_SPEED * dt;
+            printf("Rotation: %f\n", car_rotation);
+        }
+
+        if ( car_rotation >= 360) {
+            car_rotation = 0;
+        }
+
+
         car_y -= car_speed;
 
+        Rectangle car_rec = {
+            .x = car_x,
+            .y = car_y,
+            .width = car_W,
+            .height = car_H,
+        };
 
-        DrawRectangle(car_x, car_y, car_W, car_H, CAR_COLOR);
+        Vector2 car_origin = {
+            .x = car_W/2,
+            .y = car_H/2,
+        };
+        DrawRectanglePro(car_rec, car_origin, car_rotation, CAR_COLOR);
         EndDrawing();
     }
 
