@@ -21,11 +21,18 @@ void DrawWorldGrid(Camera2D cam, int screen_w, int screen_h) {
     }
 }
 
+int GetShipFrame(float rotation) {
+    int frame = (int)roundf((90.0f - rotation) / 22.5f);
+    frame = ((frame % 16 ) + 16) % 16;
+    return frame;
+}
+
 int main() {
     int width = 1250;
     int height = 720;
     InitWindow(width, height, "Racer");
     SetTargetFPS(60);
+    Texture2D ship_tex = LoadTexture("assets/sprPlayer_strip16.png");
 
     // car shape
     float car_x = width/2-30;
@@ -73,18 +80,18 @@ int main() {
             }
         }
 
-        if (IsKeyDown(KEY_LEFT) ) {
-            car_rotation -= ROATION_SPEED * dt * abs( car_speed );
-            } else if (IsKeyDown(KEY_RIGHT) ) {
-                car_rotation += ROATION_SPEED * dt * abs( car_speed );
+        if (IsKeyPressed(KEY_LEFT) && fabsf(car_speed) > 0.5f) {
+            car_rotation -= 22.5f;
+            } else if (IsKeyPressed(KEY_RIGHT) && fabsf(car_speed) > 0.5f ) {
+                car_rotation += 22.5f;
             }
 
-        if ( car_rotation >= 360) {
-            car_rotation = 0;
+        if ( car_rotation < 0) {
+            car_rotation += 360;
         }
 
 
-        float radians = PI * car_rotation / 180;
+        float radians = PI * (90.0f - GetShipFrame(car_rotation) * 22.5f) / 180;
         float x_move = car_speed * cosf(radians);
         float y_move = car_speed * sinf(radians);
 
@@ -105,14 +112,21 @@ int main() {
         };
         BeginMode2D(camera);
         DrawWorldGrid(camera, width, height);
-        DrawRectanglePro(car_rec, car_origin, car_rotation, CAR_COLOR);
+        //DrawRectanglePro(car_rec, car_origin, car_rotation, CAR_COLOR); i no need u 
+        int frame = GetShipFrame(car_rotation);
+        Rectangle ship_src = { frame * 64.0f, 0, 64, 64 };
+        Rectangle ship_dst = { car_x, car_y, 128, 128 };
+        Vector2 ship_origin = { 64, 64 };
+        DrawTexturePro(ship_tex, ship_src, ship_dst, ship_origin, 0.0f, WHITE); 
         EndMode2D();
         // remove ts
         DrawText(TextFormat("Speed: %.1f", car_speed), 10, 10, 20, BLACK);
-        DrawText(TextFormat("Heading: %.0f", car_rotation), 10, 35, 20, BLACK);
+        DrawText(TextFormat("Heading: %.1f", car_rotation), 10, 35, 20, BLACK);
+        DrawText(TextFormat("Frame: %d", GetShipFrame(car_rotation)), 10, 60, 20, BLACK);
         EndDrawing();
     }
 
+    UnloadTexture(ship_tex);
     CloseWindow();
     printf("hello world\n");
     return 0;
