@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include <raylib.h>
+#include <math.h>
+#include <stdlib.h>
 
 #define CAR_COLOR BLACK
-#define ROATION_SPEED 80
+#define ROATION_SPEED 20
 int main() {
     int width = 1250;
     int height = 720;
@@ -15,14 +17,14 @@ int main() {
     int car_W = 60;
     int car_H = 100;
     float car_speed = 0;
-    float car_max_speed = 1000;
+    float car_max_speed = 10;
     int car_direction = -1;
-    float car_rotation = 0;
+    float car_rotation = 90;
     float car_speedup = 10;
     float car_slowdown = 20;
 
     while( ! WindowShouldClose() ) {
-        float dt = GetFrameTime(60);
+        float dt = GetFrameTime();
 
 
         BeginDrawing();
@@ -49,29 +51,34 @@ int main() {
         }
 
         if (IsKeyDown(KEY_LEFT) ) {
-            car_rotation -= ROATION_SPEED * dt;
-        } else if (IsKeyDown(KEY_RIGHT) ) {
-            car_rotation += ROATION_SPEED * dt;
-            printf("Rotation: %f\n", car_rotation);
-        }
+            car_rotation -= ROATION_SPEED * dt * abs( car_speed );
+            } else if (IsKeyDown(KEY_RIGHT) ) {
+                car_rotation += ROATION_SPEED * dt * abs( car_speed );
+                printf("Rotation: %f\n", car_rotation);
+            }
 
         if ( car_rotation >= 360) {
             car_rotation = 0;
         }
 
 
-        car_y -= car_speed;
+        float radians = PI * car_rotation / 180;
+        float x_move = car_speed * cosf(radians);
+        float y_move = car_speed * sinf(radians);
+
+        car_x -= x_move;
+        car_y -= y_move;
 
         Rectangle car_rec = {
             .x = car_x,
             .y = car_y,
-            .width = car_W,
-            .height = car_H,
+            .width = car_H,
+            .height = car_W,
         };
 
         Vector2 car_origin = {
-            .x = car_W/2,
-            .y = car_H/2,
+            .x = car_H/2,
+            .y = car_W/2,
         };
         DrawRectanglePro(car_rec, car_origin, car_rotation, CAR_COLOR);
         EndDrawing();

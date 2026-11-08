@@ -1,1 +1,1 @@
-gcc -o game game.c -lraylib
+gcc -o game game.c -lraylib -lm
