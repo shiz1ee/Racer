@@ -36,6 +36,8 @@ unsigned int HashCell(int cx, int cy) {
 
 float river_p1, river_p2, river_f1, river_f2;
 
+
+
 void InitRiver(unsigned int seed) {
     river_p1 = (HashCell(seed, 1) % 6283) / 1000.0f;
     river_p2 = (HashCell(seed, 2) % 6283) / 1000.0f;
@@ -51,6 +53,23 @@ float RiverCenterX(float y) {
     return blend * (350.0f * sinf(y * river_f1 + river_p1) + 100.0f * sinf(y * river_f2 + river_p2));
 }
 
+int PickSwampTile(unsigned int r, float dist, int *tx, int *ty) {
+    if (r % 100 >= 18) return 0;
+    unsigned int k = (r >> 8) % 100;
+    if (dist > 0.7f) {
+        if (k < 30) { *tx = 4; *ty = (r >> 16) % 2; }
+        else if (k < 60) { *tx = 2; *ty = 1 + (r >> 16) % 2; }
+        else if (k < 90) { *tx = 3; *ty = (r >> 16) % 2; }
+        else if (k < 95) { *tx = 3; *ty = 2; }
+    } else {
+        if (k < 40) { *tx = 1; *ty = 1 + (r >> 16) % 2; }
+        else if (k < 70) { *tx = 2; *ty = 0; }
+        else if (k < 90) { *tx = 1; *ty = 0; }
+        else { *tx = 3; *ty = ( r >> 16) % 2; }
+    }
+    return 1;
+}
+
 void DrawRiver(Camera2D cam, int screen_h, Texture2D tex) {
     float top = cam.target.y - cam.offset.y;
     int first_row = (int)floorf(top / 32) - 1;
@@ -64,7 +83,12 @@ void DrawRiver(Camera2D cam, int screen_h, Texture2D tex) {
             unsigned int h = HashCell(col, row);
             float flip_x = (h & 1) ? -16.0f : 16.0f;
             float flip_y = (h & 2) ? -16.0f : 16.0f;
-            Rectangle src = { 112, 48, flip_x, flip_y };
+            int tx = 0, ty  = (h >> 4) % 3;
+            float dist = fabsf(col * 32 + 16 - cx) / RIVER_HALF;
+            if (PickSwampTile(HashCell(col + 5000, row + 5000), dist, &tx, &ty)) {
+                flip_y = 16.0f;
+            }
+            Rectangle src = { 112 + tx * 16, 48 + ty * 16, flip_x, flip_y};
             Rectangle dst = { col * 32.0f, row * 32.0f, 32, 32 };
             DrawTexturePro(tex, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
         }
@@ -172,6 +196,16 @@ int main() {
 
         car_x -= x_move;
         car_y -= y_move;
+        float river_cx = RiverCenterX(car_y);
+        float limit = RIVER_HALF - 40;
+        float off = car_x - river_cx;
+        if (off > limit) {
+            car_x = river_cx + limit;
+            car_speed *= 0.95f;
+        } else if (off < -limit) {
+            car_x = river_cx - limit;
+            car_speed *= 0.95f;
+        }
         camera.target = (Vector2) { car_x, car_y };
 
         Rectangle car_rec = {
