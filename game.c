@@ -5,6 +5,7 @@
 
 #define CAR_COLOR BLACK
 #define ROATION_SPEED 10
+#define RIVER_HALF 200
 
 void DrawWorldGrid(Camera2D cam, int screen_w, int screen_h) {
     int cell = 100;
@@ -27,15 +28,89 @@ int GetShipFrame(float rotation) {
     return frame;
 }
 
+unsigned int HashCell(int cx, int cy) {
+    unsigned int h = (unsigned int) cx * 374761393u + (unsigned int)cy * 668265263u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    return h ^ (h >> 16);
+}
+
+float river_p1, river_p2, river_f1, river_f2;
+
+void InitRiver(unsigned int seed) {
+    river_p1 = (HashCell(seed, 1) % 6283) / 1000.0f;
+    river_p2 = (HashCell(seed, 2) % 6283) / 1000.0f;
+    river_f1 = 0.0010f + (HashCell(seed, 3) % 100) * 0.000004f;
+    river_f2 = 0.0029f + (HashCell(seed, 4) % 100) * 0.000006f;
+}
+
+float RiverCenterX(float y) {
+    float d = 300.0f - y;
+    if (d < 0) d = 0;
+    float blend = d / 3000.0f;
+    if (blend > 1) blend = 1;
+    return blend * (350.0f * sinf(y * river_f1 + river_p1) + 100.0f * sinf(y * river_f2 + river_p2));
+}
+
+void DrawRiver(Camera2D cam, int screen_h, Texture2D tex) {
+    float top = cam.target.y - cam.offset.y;
+    int first_row = (int)floorf(top / 32) - 1;
+    int last_row = (int)floorf((top + screen_h) / 32) + 1;
+
+    for (int row = first_row; row <= last_row; row++) {
+        float cx = RiverCenterX(row * 32 + 16);
+        int first_col = (int)floorf((cx - RIVER_HALF) / 32);
+        int last_col = (int)floorf((cx + RIVER_HALF) / 32);
+        for (int col = first_col; col <= last_col; col++) {
+            unsigned int h = HashCell(col, row);
+            float flip_x = (h & 1) ? -16.0f : 16.0f;
+            float flip_y = (h & 2) ? -16.0f : 16.0f;
+            Rectangle src = { 112, 48, flip_x, flip_y };
+            Rectangle dst = { col * 32.0f, row * 32.0f, 32, 32 };
+            DrawTexturePro(tex, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
+        }
+    }
+    
+}
+
+void DrawForest(Camera2D cam, int screen_w, int screen_h, Texture2D tex) {
+    int cell = 60;
+    float left = cam.target.x - cam.offset.x;
+    float top = cam.target.y - cam.offset.y;
+    int first_x = (int)floorf(left / cell ) -2;
+    int last_x = (int)floorf((left + screen_w) / cell) + 2;
+    int first_y = (int)floorf(top / cell) - 2;
+    int last_y = (int)floorf((top + screen_h) / cell) + 2;
+
+    for (int cy = first_y; cy <= last_y; cy++) {
+        for (int cx = first_x; cx <= last_x; cx++) {
+            float world_x = cx * cell;
+            if (fabsf(world_x - RiverCenterX(cy * cell)) < RIVER_HALF + 40) continue;
+            unsigned int h = HashCell(cx, cy);
+            //if ((h >> 4) % 10 < 2) continue;
+            int variant = h % 4;
+            float off_x = (float)((h >> 8) % 40) -20;
+            float off_y = (float)((h >> 16) % 40) -20;
+            float flip = ((h >> 24) & 1) ? -48.0f : 48.0f;
+            Rectangle src = { variant * 48.0f, 0, flip, 48 };
+            Rectangle dst = { world_x + off_x, cy * cell + off_y, 96, 96 };
+            DrawTexturePro(tex, src, dst, (Vector2){48, 48 }, 0.0f, WHITE);
+        }
+    }
+}
+
 int main() {
     int width = 1250;
     int height = 720;
     InitWindow(width, height, "Racer");
     SetTargetFPS(60);
     Texture2D ship_tex = LoadTexture("assets/sprPlayer_strip16.png");
+    Texture2D tree_tex = LoadTexture("assets/48x48_trees.png");
+    Texture2D water_tex = LoadTexture("assets/Water+.png");
+    InitRiver(2026);
 
-    // car shape
-    float car_x = width/2-30;
+
+    //shape
+    float car_x = 0;
     float car_y = height/2-50;
     int car_W = 60;
     int car_H = 100;
@@ -58,7 +133,7 @@ int main() {
 
 
         BeginDrawing();
-        ClearBackground( PINK );
+        ClearBackground( (Color){18, 30, 22, 255 } );
         if (IsKeyDown(KEY_UP) ) {
             car_direction = -1;
             car_speed  += car_speedup * dt;
@@ -111,7 +186,9 @@ int main() {
             .y = car_W/2,
         };
         BeginMode2D(camera);
-        DrawWorldGrid(camera, width, height);
+        //DrawWorldGrid(camera, width, height); 
+        DrawRiver(camera, height, water_tex);
+        DrawForest(camera, width, height, tree_tex);
         //DrawRectanglePro(car_rec, car_origin, car_rotation, CAR_COLOR); i no need u 
         int frame = GetShipFrame(car_rotation);
         Rectangle ship_src = { frame * 64.0f, 0, 64, 64 };
@@ -127,6 +204,7 @@ int main() {
     }
 
     UnloadTexture(ship_tex);
+    UnloadTexture(water_tex);
     CloseWindow();
     printf("hello world\n");
     return 0;
