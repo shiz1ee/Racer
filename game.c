@@ -122,6 +122,24 @@ void DrawForest(Camera2D cam, int screen_w, int screen_h, Texture2D tex) {
     }
 }
 
+void DrawDarkness(Texture2D light_tex, int w, int h, float size) {
+    Color dark = { 0, 0, 0, 235};
+    float cx =  w / 2.0f, cy = h / 2.0f;
+    float l = cx - size / 2, r = cx + size / 2;
+    float t = cy - size / 2, b = cy + size / 2;
+    float ty = t < 0 ? 0 : t;
+    float by = b > h ? h : b;
+
+    Rectangle src = { 0, 0, (float)light_tex.width, (float)light_tex.height };
+    Rectangle dst = { l, t, size, size };
+    DrawTexturePro(light_tex, src, dst, (Vector2){0, 0 }, 0.0f, WHITE);
+    
+    if (t > 0) DrawRectangle(0, 0, w, (int)t, dark);
+    if (b < h) DrawRectangle(0, (int)b, w, h - (int)b, dark);
+    if (l > 0) DrawRectangle(0, (int)ty, (int)l, (int)(by - ty), dark);
+    if (r < w) DrawRectangle((int)r, (int)ty, w - (int)r, (int)(by - ty), dark);
+}
+
 int main() {
     int width = 1250;
     int height = 720;
@@ -130,6 +148,12 @@ int main() {
     Texture2D ship_tex = LoadTexture("assets/sprPlayer_strip16.png");
     Texture2D tree_tex = LoadTexture("assets/48x48_trees.png");
     Texture2D water_tex = LoadTexture("assets/Water+.png");
+
+    Image light_img = GenImageGradientRadial(512, 512, 0.3f, BLANK, (Color){0, 0, 0, 235});
+    Texture2D light_tex = LoadTextureFromImage(light_img);
+    UnloadImage(light_img);
+    SetTextureFilter(light_tex, TEXTURE_FILTER_BILINEAR);
+
     InitRiver(2026);
 
 
@@ -230,6 +254,7 @@ int main() {
         Vector2 ship_origin = { 64, 64 };
         DrawTexturePro(ship_tex, ship_src, ship_dst, ship_origin, 0.0f, WHITE); 
         EndMode2D();
+        DrawDarkness(light_tex, width, height, 900 + 25 * sinf(GetTime() * 2));
         // remove ts
         DrawText(TextFormat("Speed: %.1f", car_speed), 10, 10, 20, BLACK);
         DrawText(TextFormat("Heading: %.1f", car_rotation), 10, 35, 20, BLACK);
@@ -239,6 +264,7 @@ int main() {
 
     UnloadTexture(ship_tex);
     UnloadTexture(water_tex);
+    UnloadTexture(light_tex);
     CloseWindow();
     printf("hello world\n");
     return 0;
