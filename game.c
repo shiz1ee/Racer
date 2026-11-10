@@ -6,6 +6,7 @@
 #define CAR_COLOR BLACK
 #define ROATION_SPEED 10
 #define RIVER_HALF 200
+#define RAMP_LEN 100000.0f
 
 void DrawWorldGrid(Camera2D cam, int screen_w, int screen_h) {
     int cell = 100;
@@ -34,7 +35,7 @@ unsigned int HashCell(int cx, int cy) {
     return h ^ (h >> 16);
 }
 
-float river_p1, river_p2, river_f1, river_f2;
+float river_p1, river_p2, river_f1, river_f2, river_p3, river_f3;
 
 
 
@@ -43,6 +44,19 @@ void InitRiver(unsigned int seed) {
     river_p2 = (HashCell(seed, 2) % 6283) / 1000.0f;
     river_f1 = 0.0010f + (HashCell(seed, 3) % 100) * 0.000004f;
     river_f2 = 0.0029f + (HashCell(seed, 4) % 100) * 0.000006f;
+    river_p3 = (HashCell(seed, 5) % 6283) / 1000.0f;
+    river_f3 = 0.0060f + (HashCell(seed, 6) % 100) * 0.00001f;
+}
+
+float RiverDifficulty(float y) {
+    float t = (300.0f - y) / RAMP_LEN;
+    if ( t < 0) t = 0;
+    if (t > 1) t = 1;
+    return t * t * (3.0f - 2.0f * t);
+}
+
+float RiverHalfAt(float y) {
+    return RIVER_HALF - 110.0f * RiverDifficulty(y);
 }
 
 float RiverCenterX(float y) {
@@ -50,7 +64,9 @@ float RiverCenterX(float y) {
     if (d < 0) d = 0;
     float blend = d / 3000.0f;
     if (blend > 1) blend = 1;
-    return blend * (350.0f * sinf(y * river_f1 + river_p1) + 100.0f * sinf(y * river_f2 + river_p2));
+    float diff = RiverDifficulty(y);
+    float amp = 1.0f + 0.6f * diff;
+    return blend * amp * (350.0f * sinf(y * river_f1 + river_p1) + 100.0f * sinf(y * river_f2 + river_p2) + 50.0f * diff * sinf(y * river_f3 + river_p3));
 }
 
 int PickSwampTile(unsigned int r, float dist, int *tx, int *ty) {
@@ -70,6 +86,62 @@ int PickSwampTile(unsigned int r, float dist, int *tx, int *ty) {
     return 1;
 }
 
+int GetIsland(int slot, float *ix, float *iy, float *ir) {
+    unsigned int h = HashCell(slot, 777);
+    float y = slot * 360.0f + (h % 200);
+    float diff = RiverDifficulty(y);
+    if ((int)((h >> 8) % 100) >= (int)(diff * 70)) return 0;
+    float room = RiverHalfAt(y) - 100.0f;
+    float off = ((float)((h >> 16) % 1000) / 500.0f - 1.0f) * room;
+    *ix = RiverCenterX(y) + off;
+    *iy = y;
+    int kind = ((h >> 4) & 1) ? 2 : 1;
+    *ir = (kind == 2) ? 36.0f : 22.0f;
+    return kind;
+}
+
+void DrawIslands(Camera2D cam, int screen_h, Texture2D tex) {
+    float top = cam.target.y - cam.offset.y;
+    int first = (int)floorf(top / 360.0f) - 1;
+    int last = (int)floorf((top + screen_h) / 360.0f) + 1;
+    for (int s = first; s <= last; s++) {
+        float ix, iy, ir;
+        int kind = GetIsland(s, &ix, &iy, &ir);
+        if (kind == 0) continue;
+        Rectangle src = (kind == 2) ? (Rectangle){82, 6, 44, 41} : (Rectangle){130, 8, 28, 23};
+        Rectangle dst = { ix, iy, src.width * 2, src.height * 2};
+        DrawTexturePro(tex, src, dst, (Vector2){src.width, src.height }, 00.0f, WHITE);
+    }
+}
+
+void DrawGrass(Camera2D cam, int screen_w, int screen_h, Texture2D tex) {
+    Rectangle peices[4] = {
+        { 6, 6, 36, 36 }, { 55, 23, 18, 19 }, { 87, 6, 34, 20 }, { 87, 39, 50, 51 }
+    };
+    int cell = 64;
+    float left = cam.target.x - cam.offset.x;
+    float top = cam.target.y - cam.offset.y;
+    int first_x = (int)floorf(left / cell) -3;
+    int last_x = (int)floorf((left + screen_w) / cell) + 3;
+    int first_y = (int)floorf(top / cell) - 3;
+    int last_y = (int)floorf((top + screen_h) / cell) + 3;
+
+    for (int cy = first_y; cy <= last_y; cy++) {
+        for (int cx = first_x; cx <= last_x; cx++) {
+            unsigned int h = HashCell(cx + 9000, cy + 9000);
+            float wx = cx * cell + (float)(h % 40);
+            float wy = cy * cell + (float)((h >> 8) % 40);
+            float edge = fabsf(wx - RiverCenterX(wy)) - RiverHalfAt(wy);
+            if (edge < -20.0f || edge > 260.0f) continue;
+            if ((h >> 16) % 100 >= 35) continue;
+            Rectangle src = peices[(h >> 24) % 4];
+            Rectangle dst = { wx, wy, src.width * 2, src.height * 2};
+            if ((h >> 20) & 1) src.width = -src.width;
+            DrawTexturePro(tex, src, dst, (Vector2){ dst.width / 2, dst.height / 2}, 0.0f, WHITE);
+        }
+    }
+}
+
 void DrawRiver(Camera2D cam, int screen_h, Texture2D tex) {
     float top = cam.target.y - cam.offset.y;
     int first_row = (int)floorf(top / 32) - 1;
@@ -77,14 +149,15 @@ void DrawRiver(Camera2D cam, int screen_h, Texture2D tex) {
 
     for (int row = first_row; row <= last_row; row++) {
         float cx = RiverCenterX(row * 32 + 16);
-        int first_col = (int)floorf((cx - RIVER_HALF) / 32);
-        int last_col = (int)floorf((cx + RIVER_HALF) / 32);
+        float half = RiverHalfAt(row * 32 + 16);
+        int first_col = (int)floorf((cx - half) / 32);
+        int last_col = (int)floorf((cx + half) / 32);
         for (int col = first_col; col <= last_col; col++) {
             unsigned int h = HashCell(col, row);
             float flip_x = (h & 1) ? -16.0f : 16.0f;
             float flip_y = (h & 2) ? -16.0f : 16.0f;
             int tx = 0, ty  = (h >> 4) % 3;
-            float dist = fabsf(col * 32 + 16 - cx) / RIVER_HALF;
+            float dist = fabsf(col * 32 + 16 - cx) / half;
             if (PickSwampTile(HashCell(col + 5000, row + 5000), dist, &tx, &ty)) {
                 flip_y = 16.0f;
             }
@@ -108,7 +181,7 @@ void DrawForest(Camera2D cam, int screen_w, int screen_h, Texture2D tex) {
     for (int cy = first_y; cy <= last_y; cy++) {
         for (int cx = first_x; cx <= last_x; cx++) {
             float world_x = cx * cell;
-            if (fabsf(world_x - RiverCenterX(cy * cell)) < RIVER_HALF + 40) continue;
+            if (fabsf(world_x - RiverCenterX(cy * cell)) < RiverHalfAt(cy * cell) + 40) continue;
             unsigned int h = HashCell(cx, cy);
             //if ((h >> 4) % 10 < 2) continue;
             int variant = h % 4;
@@ -154,6 +227,13 @@ int main() {
     UnloadImage(light_img);
     SetTextureFilter(light_tex, TEXTURE_FILTER_BILINEAR);
 
+    Image island_img = LoadImage("assets/riverbank_02.png");
+    ImageColorReplace(&island_img, (Color){51, 97, 81, 255 }, BLANK);
+    Texture2D island_tex = LoadTextureFromImage(island_img);
+    UnloadImage(island_img);
+
+    Texture2D grass_tex = LoadTexture("assets/Grass_transition_02.png");
+
     InitRiver(2026);
 
 
@@ -181,7 +261,7 @@ int main() {
 
 
         BeginDrawing();
-        ClearBackground( (Color){18, 30, 22, 255 } );
+        ClearBackground( (Color){53, 55, 36, 255 } );
         if (IsKeyDown(KEY_UP) ) {
             car_direction = -1;
             car_speed  += car_speedup * dt;
@@ -221,7 +301,7 @@ int main() {
         car_x -= x_move;
         car_y -= y_move;
         float river_cx = RiverCenterX(car_y);
-        float limit = RIVER_HALF - 40;
+        float limit = RiverHalfAt(car_y) - 40;
         float off = car_x - river_cx;
         if (off > limit) {
             car_x = river_cx + limit;
@@ -230,6 +310,21 @@ int main() {
             car_x = river_cx - limit;
             car_speed *= 0.95f;
         }
+
+        for (int s = (int)floorf(car_y / 360.0f) - 1; s <= (int)floorf(car_y / 360.0f) + 1; s++) {
+            float ix, iy, ir;
+            if (GetIsland(s, &ix, &iy, &ir)) {
+                float dx = car_x - ix, dy = car_y - iy;
+                float dist = sqrtf(dx * dx + dy * dy);
+                float min_dist = ir + 25.0f;
+                if (dist < min_dist && dist> 0.001f) {
+                    car_x = ix + dx / dist * min_dist;
+                    car_y = iy + dy / dist * min_dist;
+                    car_speed *= 0.9f;
+                }
+            }
+        }
+
         camera.target = (Vector2) { car_x, car_y };
 
         Rectangle car_rec = {
@@ -245,7 +340,9 @@ int main() {
         };
         BeginMode2D(camera);
         //DrawWorldGrid(camera, width, height); 
+        DrawGrass(camera, width, height, grass_tex);
         DrawRiver(camera, height, water_tex);
+        DrawIslands(camera, height, island_tex);
         DrawForest(camera, width, height, tree_tex);
         //DrawRectanglePro(car_rec, car_origin, car_rotation, CAR_COLOR); i no need u 
         int frame = GetShipFrame(car_rotation);
@@ -256,15 +353,18 @@ int main() {
         EndMode2D();
         DrawDarkness(light_tex, width, height, 900 + 25 * sinf(GetTime() * 2));
         // remove ts
-        DrawText(TextFormat("Speed: %.1f", car_speed), 10, 10, 20, BLACK);
-        DrawText(TextFormat("Heading: %.1f", car_rotation), 10, 35, 20, BLACK);
-        DrawText(TextFormat("Frame: %d", GetShipFrame(car_rotation)), 10, 60, 20, BLACK);
+        DrawText(TextFormat("Speed: %.1f", car_speed), 10, 10, 20, WHITE);
+        DrawText(TextFormat("Heading: %.1f", car_rotation), 10, 35, 20, WHITE);
+        DrawText(TextFormat("Frame: %d", GetShipFrame(car_rotation)), 10, 60, 20, WHITE);
+        DrawText(TextFormat("Difficulty: %.0f%%", RiverDifficulty(car_y) * 100), 10, 85, 20, WHITE);
         EndDrawing();
     }
 
     UnloadTexture(ship_tex);
     UnloadTexture(water_tex);
     UnloadTexture(light_tex);
+    UnloadTexture(island_tex);
+    UnloadTexture(grass_tex);
     CloseWindow();
     printf("hello world\n");
     return 0;
