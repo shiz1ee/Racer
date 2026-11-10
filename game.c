@@ -197,9 +197,10 @@ void DrawForest(Camera2D cam, int screen_w, int screen_h, Texture2D tex) {
 
 void DrawDarkness(Texture2D light_tex, int w, int h, float size) {
     Color dark = { 0, 0, 0, 235};
-    float cx =  w / 2.0f, cy = h / 2.0f;
-    float l = cx - size / 2, r = cx + size / 2;
-    float t = cy - size / 2, b = cy + size / 2;
+    int s = (int)size;
+    s -= s % 2;
+    float l = (float)(w / 2 - s / 2), r = (float)(w / 2 + s / 2);
+    float t = (float)(h / 2 - s / 2), b = (float)(w / 2 + s / 2);
     float ty = t < 0 ? 0 : t;
     float by = b > h ? h : b;
 
