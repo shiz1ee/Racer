@@ -7,6 +7,7 @@
 #define ROATION_SPEED 10
 #define RIVER_HALF 200
 #define RAMP_LEN 100000.0f
+#define BR_SLOT 6000.0f
 
 void DrawWorldGrid(Camera2D cam, int screen_w, int screen_h) {
     int cell = 100;
@@ -67,6 +68,101 @@ float RiverCenterX(float y) {
     float diff = RiverDifficulty(y);
     float amp = 1.0f + 0.6f * diff;
     return blend * amp * (350.0f * sinf(y * river_f1 + river_p1) + 100.0f * sinf(y * river_f2 + river_p2) + 50.0f * diff * sinf(y * river_f3 + river_p3));
+}
+
+typedef struct {
+    float y_bot, len, side, dmax;
+    int type;
+} Branch;
+
+int GetBranch(int slot, Branch *b) {
+    unsigned int h = HashCell(slot, 4242);
+    unsigned int h2 = HashCell(slot, 9191);
+    float y_bot = slot * BR_SLOT + (float)(h % 600);
+    if (y_bot > -2000.0f) return 0;
+    if ((int)((h >> 8) % 100) >= 45 + (int)(RiverDifficulty(y_bot) * 35)) return 0;
+    int t = (int)((h >> 16) % 100);
+    b->type = t < 45 ? 0 : (t < 75 ? 1 : 2);
+    b->side = ((h >> 20) & 1) ? 1.0f : -1.0f;
+    b->y_bot = y_bot;
+    b->len = (b->type == 0 ? 3500.0f : 3000.0f) + (float)(h2 % 1400);
+    b->dmax = 600.0f + (float)((h2 >> 16) % 200) + (b->type == 2 ? 300.0f : 0.0f);
+    return 1;
+}
+
+int BranchChannel(Branch *b, float y, float *cx, float *half) {
+    float u = (b->y_bot - y) / b->len;
+    if (u < 0 || u > 1) return 0;
+    float w = RiverHalfAt(y) * 0.7f;
+    float d;
+    if (b->type == 0) {
+        d = b->dmax * sinf(3.14159f * u);
+    } else {
+        float t = fminf(u / 0.45f, 1.0f);
+        d = b->dmax * t * t * (3.0f - 2.0f * t);
+        float e = fminf(fmaxf((u - 0.85f) / 0.15f, 0.0f), 1.0f);
+        if (b->type == 2) {
+            float g = fminf(fmaxf((u - 0.55f) / 0.3f, 0.0f), 1.0f);
+            w *= 1.0f + 0.9f * g * g * (3.0f - 2.0f * g);
+        }
+        w *= 1.0f - 0.9f * e;
+    }
+    *cx = RiverCenterX(y) + b->side * d;
+    *half = w;
+    return 1;
+}
+
+int GetChannels(float y, float *cx, float *half) {
+    cx[0] = RiverCenterX(y);
+    half[0] = RiverHalfAt(y);
+    int q = (int)floorf(y / BR_SLOT);
+    for (int s = q; s <= q + 1; s++) {
+        Branch b;
+        if (GetBranch(s, &b) && BranchChannel(&b, y, &cx[1], &half[1])) return 2;
+    }
+    return 1;
+}
+
+float WaterEdgeDist(float x, float y) {
+    float cx[2], half[2];
+    int n = GetChannels(y, cx, half);
+    float best = 1e9f;
+    for (int i = 0; i < n; i++) {
+        float e = fabsf(x - cx[i]) - half[i];
+        if (e < best) best = e;
+    }
+    return best;
+}
+
+int NearWater(float x, float y, float margin) {
+    return WaterEdgeDist(x, y) < margin;
+}
+
+void ClampToWater(float *x, float *y, float old_x, float old_y, float *speed) {
+    float cx[2], half[2];
+    int n = GetChannels(*y, cx, half);
+    float lo = cx[0] - half[0], hi = cx[0] + half[0];
+    if (n == 2) {
+        float lo2 = cx[1] - half[1], hi2 = cx[1] + half[1];
+        if (lo2 <= hi && hi2 >= lo) {
+            lo = fminf(lo, lo2);
+            hi = fmaxf(hi, hi2);
+        } else {
+            float d0 = fmaxf(fmaxf(lo - *x, *x - hi), 0.0f);
+            float d1 = fmaxf(fmaxf(lo2 - *x, *x - hi2), 0.0f);
+            if (d1 < d0) { lo = lo2; hi = hi2; }
+        }
+    }
+    if (*x < lo - 40.0f || *x > hi + 40.0f) {
+        *x = old_x;
+        *y = old_y;
+        *speed *= 0.8f;
+        return;
+    }
+    float a = lo + 40.0f, b = hi - 40.0f;
+    if (a > b ) { a = (lo + hi) / 2.0f; b = a;}
+    if (*x < a) { *x = a; *speed *= 0.95f; }
+    else if (*x > b) { *x = b; *speed *= 0.95f;}
 }
 
 int PickSwampTile(unsigned int r, float dist, int *tx, int *ty) {
@@ -131,7 +227,7 @@ void DrawGrass(Camera2D cam, int screen_w, int screen_h, Texture2D tex) {
             unsigned int h = HashCell(cx + 9000, cy + 9000);
             float wx = cx * cell + (float)(h % 40);
             float wy = cy * cell + (float)((h >> 8) % 40);
-            float edge = fabsf(wx - RiverCenterX(wy)) - RiverHalfAt(wy);
+            float edge = WaterEdgeDist(wx, wy);
             if (edge < -20.0f || edge > 260.0f) continue;
             if ((h >> 16) % 100 >= 35) continue;
             Rectangle src = peices[(h >> 24) % 4];
@@ -148,25 +244,28 @@ void DrawRiver(Camera2D cam, int screen_h, Texture2D tex) {
     int last_row = (int)floorf((top + screen_h) / 32) + 1;
 
     for (int row = first_row; row <= last_row; row++) {
-        float cx = RiverCenterX(row * 32 + 16);
-        float half = RiverHalfAt(row * 32 + 16);
-        int first_col = (int)floorf((cx - half) / 32);
-        int last_col = (int)floorf((cx + half) / 32);
-        for (int col = first_col; col <= last_col; col++) {
-            unsigned int h = HashCell(col, row);
-            float flip_x = (h & 1) ? -16.0f : 16.0f;
-            float flip_y = (h & 2) ? -16.0f : 16.0f;
-            int tx = 0, ty  = (h >> 4) % 3;
-            float dist = fabsf(col * 32 + 16 - cx) / half;
-            if (PickSwampTile(HashCell(col + 5000, row + 5000), dist, &tx, &ty)) {
-                flip_y = 16.0f;
+        float chx[2], chh[2];
+        int nch = GetChannels(row * 32 + 16, chx, chh);
+        for (int c = 0; c < nch; c++) {
+            float cx = chx[c];
+            float half = chh[c];
+            int first_col = (int)floorf((cx - half) / 32);
+            int last_col = (int)floorf((cx + half) / 32);
+            for (int col = first_col; col <= last_col; col++) {
+                unsigned int h = HashCell(col, row);
+                float flip_x = (h & 1) ? -16.0f : 16.0f;
+                float flip_y = (h & 2) ? -16.0f : 16.0f;
+                int tx = 0, ty = (h >> 4) % 3;
+                float dist = fabsf(col * 32 + 16 - cx) / half;
+                if (PickSwampTile(HashCell(col + 5000, row + 5000), dist, &tx, &ty)) {
+                    flip_y = 16.0f;
+                }
+                Rectangle src = { 112 + tx * 16, 48 + ty * 16, flip_x, flip_y };
+                Rectangle dst = { col * 32.0f, row * 32.0f, 32, 32 };
+                DrawTexturePro(tex, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
             }
-            Rectangle src = { 112 + tx * 16, 48 + ty * 16, flip_x, flip_y};
-            Rectangle dst = { col * 32.0f, row * 32.0f, 32, 32 };
-            DrawTexturePro(tex, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
         }
     }
-    
 }
 
 void DrawForest(Camera2D cam, int screen_w, int screen_h, Texture2D tex) {
@@ -181,7 +280,7 @@ void DrawForest(Camera2D cam, int screen_w, int screen_h, Texture2D tex) {
     for (int cy = first_y; cy <= last_y; cy++) {
         for (int cx = first_x; cx <= last_x; cx++) {
             float world_x = cx * cell;
-            if (fabsf(world_x - RiverCenterX(cy * cell)) < RiverHalfAt(cy * cell) + 40) continue;
+            if (NearWater(world_x, (float)(cy * cell), 40.0f)) continue;
             unsigned int h = HashCell(cx, cy);
             //if ((h >> 4) % 10 < 2) continue;
             int variant = h % 4;
@@ -299,18 +398,10 @@ int main() {
         float x_move = car_speed * cosf(radians);
         float y_move = car_speed * sinf(radians);
 
+        float old_x = car_x, old_y = car_y;
         car_x -= x_move;
         car_y -= y_move;
-        float river_cx = RiverCenterX(car_y);
-        float limit = RiverHalfAt(car_y) - 40;
-        float off = car_x - river_cx;
-        if (off > limit) {
-            car_x = river_cx + limit;
-            car_speed *= 0.95f;
-        } else if (off < -limit) {
-            car_x = river_cx - limit;
-            car_speed *= 0.95f;
-        }
+        ClampToWater(&car_x, &car_y, old_x, old_y, &car_speed);
 
         for (int s = (int)floorf(car_y / 360.0f) - 1; s <= (int)floorf(car_y / 360.0f) + 1; s++) {
             float ix, iy, ir;
@@ -358,6 +449,7 @@ int main() {
         DrawText(TextFormat("Heading: %.1f", car_rotation), 10, 35, 20, WHITE);
         DrawText(TextFormat("Frame: %d", GetShipFrame(car_rotation)), 10, 60, 20, WHITE);
         DrawText(TextFormat("Difficulty: %.0f%%", RiverDifficulty(car_y) * 100), 10, 85, 20, WHITE);
+                DrawText(TextFormat("Edge: %.0f", WaterEdgeDist(car_x, car_y)), 10, 110, 20, WHITE);
         EndDrawing();
     }
 
