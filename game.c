@@ -8,6 +8,35 @@
 #define RIVER_HALF 200
 #define RAMP_LEN 100000.0f
 #define BR_SLOT 6000.0f
+typedef enum { SIL_LURK, SIL_TELEGRAPH, SIL_LUNGE, SIL_RECOVER }SilState;
+
+typedef struct {
+    Vector2 pos;
+    Vector2 home;
+    Vector2 target;
+    SilState state;
+    float timer;
+    bool fake;
+    bool active;
+} Silhouette;
+
+void Silhouette_Draw(const Silhouette *s)
+{
+    if (!s->active) return;
+    int x = (int)s->pos.x;
+    int y = (int)s->pos.y;
+    Color blk = (Color){0, 0, 0, 255};
+
+    DrawEllipse(x, y, 10, 26, blk);
+    DrawCircle(x, y -30, 9, blk);
+    DrawLineEx((Vector2){x - 8, y- 16}, (Vector2){x - 22, y + 14}, 3, blk);
+    DrawLineEx((Vector2){x + 8, y - 16}, (Vector2){x + 22, y + 14}, 3, blk);
+
+    if (s->state == SIL_TELEGRAPH) {
+        DrawCircle(x - 4, y - 32, 2, (Color){220, 230, 200, 255});
+        DrawCircle(x + 4, y - 32, 2, (Color){220, 230, 200, 255});
+    }
+}
 
 void DrawWorldGrid(Camera2D cam, int screen_w, int screen_h) {
     int cell = 100;
@@ -350,6 +379,12 @@ int main() {
     float car_speedup = 10;
     float car_slowdown = 10;
 
+Silhouette sil = {0};
+    sil.pos = (Vector2){ 230, 100};
+    sil.home = sil.pos;
+    sil.state = SIL_LURK;
+    sil.active = true;
+
     //kamera
     Camera2D camera = { 0 };
     camera.offset = (Vector2) {width/2.0f, height/2.0f };
@@ -436,6 +471,7 @@ int main() {
         DrawRiver(camera, height, water_tex);
         DrawIslands(camera, height, island_tex);
         DrawForest(camera, width, height, tree_tex);
+        Silhouette_Draw(&sil);
         //DrawRectanglePro(car_rec, car_origin, car_rotation, CAR_COLOR); i no need u 
         int frame = GetShipFrame(car_rotation);
         Rectangle ship_src = { frame * 64.0f, 0, 64, 64 };
